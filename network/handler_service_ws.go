@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"runtime"
 	sync "sync"
 	"time"
 
@@ -18,10 +17,11 @@ var _ Handler = &wsClientHandler{}
 
 // ClientHandler TCP服务客户端处理程序
 type wsClientHandler struct {
-	conn           *websocket.Conn
-	sendbox        *circbuf.LinkBuffer
-	sendcond       *sync.Cond
-	mailbox        chan interface{}
+	conn     *websocket.Conn
+	sendbox  *circbuf.LinkBuffer
+	sendcond *sync.Cond
+	// mailbox  chan interface{}
+	mailbox        *queue
 	keepalive      uint32
 	keepaliveError uint8
 	invoker        MessageInvoker
@@ -68,7 +68,13 @@ func (c *wsClientHandler) PostMessage(b []byte) error {
 }
 
 func (c *wsClientHandler) PostToMessage(b []byte, target net.Addr) error {
-	return errors.New("client: undefine post to message")
+	rec := &RecviceMessage{
+		Data: make([]byte, len(b)),
+		Addr: target,
+	}
+	copy(rec.Data, b)
+	c.mailbox.Push(rec)
+	return nil
 }
 
 func (c *wsClientHandler) Close() {
@@ -134,37 +140,13 @@ func (c *wsClientHandler) sender() {
 				break
 			}
 			c.sendcond.L.Unlock()
-
-			i := 0
-			offset := 0
-			nwrite := 0
-			for {
-
-				if i > 1 {
-					runtime.Gosched()
-					i = 0
-				}
-
-				if c.isStopped() {
-					goto ws_sender_exit_label
-				}
-				// c.conn.SetWriteDeadline(time.Now().Add(time.Millisecond * 50))
-				if nwrite, err = c.conn.NetConn().Write(readbytes[offset:]); err != nil {
-					// if e, ok := err.(net.Error); ok && e.Timeout() {
-					// 	goto tcp_sender_continue_label
-					// }
-					goto ws_sender_exit_label
-				}
-			// ws_sender_continue_label:
-				offset += nwrite
-				if offset == len(readbytes) {
-					break
-				}
-				i++
+			if c.isStopped() {
+				goto ws_sender_exit_label
 			}
-
+			if err = c.conn.WriteMessage(websocket.BinaryMessage, readbytes[0:]); err != nil {
+				goto ws_sender_exit_label
+			}
 			readbytes = nil
-
 		}
 	}
 ws_sender_exit_label:
@@ -181,8 +163,8 @@ func (c *wsClientHandler) reader() {
 		c.done.Done()
 		c.refdone.Done()
 	}()
-	c.mailbox <- &AcceptMessage{}
-
+	// c.mailbox <- &AcceptMessage{}
+	c.mailbox.Push(&AcceptMessage{})
 	remoteAddr := c.conn.RemoteAddr()
 	for {
 
@@ -197,7 +179,8 @@ func (c *wsClientHandler) reader() {
 			if e, ok := err.(net.Error); ok && e.Timeout() {
 				c.keepaliveError++
 				if c.keepaliveError <= 3 {
-					c.mailbox <- &PingMessage{}
+					// c.mailbox <- &PingMessage{}
+					c.mailbox.Push(&PingMessage{})
 					continue
 				}
 			}
@@ -209,7 +192,8 @@ func (c *wsClientHandler) reader() {
 			Addr: remoteAddr,
 		}
 		copy(rec.Data, msg[:])
-		c.mailbox <- rec
+		// c.mailbox <- rec
+		c.mailbox.Push(rec)
 	}
 
 	c.conn.Close()
@@ -220,7 +204,8 @@ func (c *wsClientHandler) reader() {
 	c.sendcond.Signal()
 	c.sendcond.L.Unlock()
 
-	c.mailbox <- &ClosedMessage{}
+	// c.mailbox <- &ClosedMessage{}
+	c.mailbox.Push(&ClosedMessage{})
 
 }
 
@@ -231,7 +216,8 @@ func (c *wsClientHandler) guardian() {
 		c.refdone.Done()
 	}()
 	for {
-		msg, ok := <-c.mailbox
+		// msg, ok := <-c.mailbox
+		msg, ok := c.mailbox.Pop()
 		if !ok {
 			goto ws_guardian_exit_lable
 		}
@@ -250,7 +236,7 @@ func (c *wsClientHandler) guardian() {
 		}
 	}
 ws_guardian_exit_lable:
-	close(c.mailbox)
+	// close(c.mailbox)
 	c.done.Wait()
 
 	// // 释放资源

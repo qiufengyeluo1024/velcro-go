@@ -7,10 +7,10 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
+	"github.com/rs/cors"
 	"github.com/yamakiller/velcro-go/gofunc"
 	"github.com/yamakiller/velcro-go/utils/circbuf"
 	"github.com/yamakiller/velcro-go/vlog"
-	"github.com/rs/cors"
 )
 
 func newWSNetworkServerModule(system *NetworkSystem) *wsNetworkServerModule {
@@ -33,10 +33,10 @@ type wsNetworkServerModule struct {
 
 func (t *wsNetworkServerModule) Open(addr string) error {
 	c := cors.New(cors.Options{
-        AllowedOrigins: []string{"*"},
-        AllowCredentials: true,
-    })
-    handler := c.Handler(t)
+		AllowedOrigins:   []string{"*"},
+		AllowCredentials: true,
+	})
+	handler := c.Handler(t)
 	t.server = &http.Server{Addr: addr, Handler: handler}
 	gofunc.GoFunc(context.Background(), func() {
 		vlog.Fatalf("VELCRO: network server listen failed, addr=%s error=%s", addr, t.server.ListenAndServe())
@@ -75,16 +75,17 @@ func (t *wsNetworkServerModule) spawn(conn *websocket.Conn) error {
 		sendcond:  sync.NewCond(&sync.Mutex{}),
 		keepalive: uint32(t.system.Config.Kleepalive),
 		invoker:   &ctx,
-		mailbox:   make(chan interface{}, 1),
-		stopper:   make(chan struct{}),
-		refdone:   &t.waitGroup,
+		// mailbox:   make(chan interface{}, 512),
+		mailbox: spawnQueue(8),
+		stopper: make(chan struct{}),
+		refdone: &t.waitGroup,
 	}
 
 	cid, ok := t.system.handlers.Push(handler, id)
 	if !ok {
 		handler.Close()
 		// 释放资源
-		close(handler.mailbox)
+		// close(handler.mailbox)
 		close(handler.stopper)
 		handler.sendbox.Close()
 		handler.sendbox = nil
