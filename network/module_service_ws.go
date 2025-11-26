@@ -5,11 +5,11 @@ import (
 	"net/http"
 	sync "sync"
 
-	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
 	"github.com/rs/cors"
 	"github.com/yamakiller/velcro-go/gofunc"
 	"github.com/yamakiller/velcro-go/utils/circbuf"
+	"github.com/yamakiller/velcro-go/utils/websocket"
 	"github.com/yamakiller/velcro-go/vlog"
 )
 

@@ -7,9 +7,9 @@ import (
 	sync "sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/yamakiller/velcro-go/gofunc"
 	"github.com/yamakiller/velcro-go/utils/circbuf"
+	"github.com/yamakiller/velcro-go/utils/websocket"
 	"github.com/yamakiller/velcro-go/vlog"
 )
 
@@ -173,6 +173,7 @@ func (c *wsClientHandler) reader() {
 		}
 		if c.keepalive > 0 {
 			c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.keepalive) * time.Millisecond * 2.0))
+			c.conn.ResetReadError()
 		}
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {
