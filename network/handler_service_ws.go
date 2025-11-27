@@ -173,11 +173,11 @@ func (c *wsClientHandler) reader() {
 		}
 		if c.keepalive > 0 {
 			c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.keepalive) * time.Millisecond * 2.0))
-			c.conn.ResetReadError()
 		}
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {
 			if e, ok := err.(net.Error); ok && e.Timeout() {
+				c.conn.ResetReadError()
 				c.keepaliveError++
 				if c.keepaliveError <= 3 {
 					// c.mailbox <- &PingMessage{}
